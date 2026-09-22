@@ -10,9 +10,10 @@ import {
 import { mergeBossDetail, parseBossJobItem } from '@/adapters/boss/parser'
 import { fillChatInput } from '@/adapters/boss/messenger'
 import { readChatFromDom } from '@/adapters/boss/chat'
-import { getContainerVue, readVueData } from '@/adapters/boss/vue-hook'
-import type { BossZpJobItemData } from '@/adapters/boss/types'
+import { getContainerVue, getRootVue, readVueData } from '@/adapters/boss/vue-hook'
+import type { BossZpDetailData, BossZpJobItemData } from '@/adapters/boss/types'
 import type { ChatMessage } from '@/applications/schema/application'
+import { JobSchema, splitDescriptionBlocks } from '@/jobs/schema/job'
 import type { Job } from '@/jobs/schema/job'
 import type { PageInfo, SendResult } from '@/adapters/types'
 import {
@@ -32,16 +33,76 @@ import { logger } from '@/utils/logger'
 
 type Vue2Instance = Record<string, unknown> & { __vue__?: Vue2Instance }
 
+/** 从页面 HTML 中扫描 securityId/lid（详情页 SSR 数据里带令牌） */
+function scanPageTokens(): { securityId: string; lid: string } {
+  try {
+    const html = document.documentElement.outerHTML
+    const securityId = html.match(/"securityId":"([^"\\]{5,80})"/)?.[1] ?? ''
+    const lid = html.match(/"lid":"([^"\\]{5,80})"/)?.[1] ?? ''
+    return { securityId, lid }
+  } catch {
+    return { securityId: '', lid: '' }
+  }
+}
+
+/** 深度遍历 Vue2 组件树查找 jobDetail（容器 selector 失效时的兜底） */
+async function findJobDetailDeep(timeoutMs = 8000): Promise<{ detail: BossZpDetailData; lid: string } | null> {
+  try {
+    const root = await getRootVue(timeoutMs)
+    const start = Date.now()
+    for (;;) {
+      const queue: Vue2Instance[] = [root as Vue2Instance]
+      let visited = 0
+      while (queue.length && visited < 400) {
+        const v = queue.shift()!
+        visited++
+        const d = v['jobDetail'] as BossZpDetailData | undefined
+        if (d && d.jobInfo) return { detail: d, lid: d.lid ?? '' }
+        const children = v['$children'] as Vue2Instance[] | undefined
+        if (Array.isArray(children)) queue.push(...children)
+      }
+      if (Date.now() - start > timeoutMs) return null
+      await new Promise((r) => setTimeout(r, 300))
+    }
+  } catch {
+    return null
+  }
+}
+
+/** DOM 提取 JD（最后兜底：只读页面文本，无 securityId） */
+function extractJobFromDom(encryptJobId: string): Job | null {
+  const title =
+    document.querySelector('.job-banner .name, .job-primary .name, .job-name, h1')?.textContent?.trim() ?? ''
+  const salary =
+    document.querySelector('.job-banner .salary, .job-primary .salary, .salary')?.textContent?.trim() ?? ''
+  const jd =
+    document.querySelector('.job-sec-text')?.textContent?.trim() ??
+    document.querySelector('.job-detail-section')?.textContent?.trim() ??
+    ''
+  if (!title && !jd) return null
+  const base = parseBossJobItem({
+    encryptJobId,
+    securityId: '',
+    jobName: title || '未知岗位',
+    salaryDesc: salary || '',
+  })
+  if (!jd) return base
+  const { responsibilities, requirements } = splitDescriptionBlocks(jd)
+  return JobSchema.parse({
+    ...base,
+    description: jd,
+    responsibilities: responsibilities.length ? responsibilities : base.responsibilities,
+    requirements: requirements.length ? requirements : base.requirements,
+  })
+}
+
 /** 等待详情数据就绪（hook 兜底：轮询容器组件 jobDetail） */
-async function pollHookedJobDetail(timeoutMs = 8000): Promise<{ detail: unknown; lid: string } | null> {
+async function pollHookedJobDetail(timeoutMs = 8000): Promise<{ detail: BossZpDetailData; lid: string } | null> {
   try {
     const vue = await getContainerVue(timeoutMs)
     const start = Date.now()
     for (;;) {
-      const detail = readVueData(vue, 'jobDetail') as
-        | { lid?: string; jobInfo?: unknown; securityId?: string }
-        | null
-        | undefined
+      const detail = readVueData(vue, 'jobDetail') as BossZpDetailData | null | undefined
       if (detail && detail.jobInfo) return { detail, lid: detail.lid ?? '' }
       if (Date.now() - start > timeoutMs) return null
       await new Promise((r) => setTimeout(r, 200))
@@ -62,16 +123,33 @@ async function getInfo(): Promise<PageInfo> {
   }
 }
 
-/** 当前岗位：URL securityId/lid 走 REST，兜底 hook jobDetail */
+/** 当前岗位：URL/页面扫描拿 securityId 走 REST → Vue 深度 hook → DOM 提取 → 基础信息 */
 async function getCurrentJob(): Promise<Job | null> {
   const url = new URL(location.href)
   const m = extractJobIdFromUrl(location.href)
   if (!m) return null
-  const securityId = url.searchParams.get('securityId') ?? ''
-  const lid = url.searchParams.get('lid') ?? m
-  try {
-    if (securityId) {
+
+  // 令牌：URL 参数 → 页面 HTML 扫描
+  let securityId = url.searchParams.get('securityId') ?? ''
+  let lid = url.searchParams.get('lid') ?? ''
+  if (!securityId) {
+    const scanned = scanPageTokens()
+    if (scanned.securityId) {
+      securityId = scanned.securityId
+      lid = lid || scanned.lid
+      logger.info('securityId 从页面数据中扫描获得')
+    }
+  }
+  if (!lid) lid = m
+
+  // 主路径：REST detail.json（校验返回的是当前岗位）
+  if (securityId) {
+    try {
       const detail = await fetchJobDetail(securityId, lid)
+      const detailJobId = detail.jobInfo?.encryptId ?? ''
+      if (detailJobId && detailJobId !== m) {
+        throw new Error(`详情与当前岗位不匹配: ${detailJobId}`)
+      }
       const job = parseBossJobItem({
         encryptJobId: m,
         securityId,
@@ -93,18 +171,34 @@ async function getCurrentJob(): Promise<Job | null> {
         welfareList: detail.jobInfo?.welfareList,
       })
       return mergeBossDetail(job, detail)
+    } catch (e) {
+      logger.warn('REST 详情失败，回退 Vue hook：', e)
     }
-  } catch (e) {
-    logger.warn('REST 详情失败，回退 hook：', e)
   }
-  // 兜底：hook 到的 jobDetail
+
+  // 兜底 1：容器 hook 的 jobDetail
   const hooked = await pollHookedJobDetail()
-  if (hooked) {
-    const detail = hooked.detail as Parameters<typeof mergeBossDetail>[1]
-    const job = parseBossJobItem({ encryptJobId: m, securityId: detail.securityId ?? '', lid: detail.lid ?? '', jobName: '' })
+  // 兜底 2：深度遍历组件树找 jobDetail（新版页面容器 selector 变化时）
+  const deep = hooked ?? (await findJobDetailDeep())
+  if (deep) {
+    const detail = deep.detail
+    const job = parseBossJobItem({
+      encryptJobId: m,
+      securityId: detail.securityId ?? securityId,
+      lid: detail.lid ?? lid,
+      jobName: '',
+    })
     return mergeBossDetail(job, detail)
   }
-  // 最后兕底：仅返回基础信息（无 JD），由 UI 提示手动刷新
+
+  // 兜底 3：从 DOM 直接提取标题/薪资/JD 文本（无 securityId，可分析但部分发送能力受限）
+  const fromDom = extractJobFromDom(m)
+  if (fromDom) {
+    logger.info('使用 DOM 提取岗位数据')
+    return fromDom
+  }
+
+  // 最后：仅基础信息
   return parseBossJobItem({ encryptJobId: m, securityId, jobName: '' })
 }
 

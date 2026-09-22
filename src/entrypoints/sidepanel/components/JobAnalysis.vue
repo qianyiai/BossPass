@@ -86,7 +86,7 @@ function riskStyle(text: string): string {
           <span v-for="s in job.skills.slice(0, 12)" :key="s" class="badge bg-blue-50 text-blue-700">{{ s }}</span>
         </div>
         <div v-if="!job.description" class="mt-2 rounded bg-gray-50 px-2 py-1 text-[11px] text-gray-500">
-          暂无完整 JD{{ job.securityId ? '' : '（缺少 securityId，建议从详情页打开该岗位）' }}
+          暂无完整 JD：点上方「刷新」重试；仍失败请从岗位详情页直接打开该岗位。仅识别到标题时无法做完整匹配分析。
         </div>
         <details v-if="job.description" class="mt-2">
           <summary class="cursor-pointer text-[11px] text-gray-400">查看 JD 全文</summary>
