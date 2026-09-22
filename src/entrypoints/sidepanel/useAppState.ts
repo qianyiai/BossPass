@@ -7,6 +7,7 @@ import { applyChanges } from '@/resume/diff'
 import { createMasterResumeFromText } from '@/resume/master'
 import { extractTextFromPdf, isSupportedResumeFile } from '@/resume/parser/pdf'
 import type { MasterResume, Resume, ResumeVersion } from '@/resume/schema/resume'
+import { mergeBossDetail } from '@/adapters/boss/parser'
 import {
   getActiveMasterResume,
   cacheJob,
@@ -27,6 +28,10 @@ export const pageInfo = ref<{ pageKind: string; url: string } | null>(null)
 export const analysis = ref<MatchAnalysis | null>(null)
 export const analyzing = ref(false)
 export const application = ref<Application | null>(null)
+/** 列表页可见岗位（详情页之外的场景） */
+export const visibleJobs = ref<Job[]>([])
+/** 连接/页面脚本错误提示（区别于"未识别岗位"） */
+export const connectionError = ref('')
 
 // 简历优化
 export const optimizing = ref(false)
@@ -81,29 +86,58 @@ export async function uploadResumePdf(file: File) {
   return master.value
 }
 
-/** 读取当前 BOSS 岗位（页面 RPC），并落缓存/申请记录 */
+/** 读取当前 BOSS 岗位（页面 RPC），并落缓存/申请记录；列表页则拉取可见岗位 */
 export async function refreshJob(): Promise<Job | null> {
+  connectionError.value = ''
   try {
     pageInfo.value = await rpc.getPageInfo()
   } catch (e) {
+    // content script 未注入（扩展安装后未刷新页面）或非 BOSS 页面
     pageInfo.value = { pageKind: 'other', url: '' }
-    logger.warn('getPageInfo failed', e)
+    connectionError.value = e instanceof Error ? e.message : String(e)
+    job.value = null
+    visibleJobs.value = []
+    return null
   }
   try {
     const j = await rpc.getCurrentJob()
     if (j) {
       job.value = j
+      visibleJobs.value = []
       await cacheJob(j)
       await ensureApplication(j)
-    } else {
-      job.value = null
+      return j
     }
   } catch (e) {
-    job.value = null
     logger.warn('getCurrentJob failed', e)
-    throw e
   }
-  return job.value
+  job.value = null
+  // 列表页/首页：拉取可见岗位供用户选择
+  try {
+    visibleJobs.value = await rpc.listVisibleJobs()
+  } catch (e) {
+    logger.warn('listVisibleJobs failed', e)
+    visibleJobs.value = []
+  }
+  return null
+}
+
+/** 从列表选择岗位 → 拉 JD 详情 → 作为当前岗位 */
+export async function selectJob(item: Job): Promise<Job | null> {
+  connectionError.value = ''
+  let j = item
+  if (item.securityId) {
+    try {
+      const detail = await rpc.fetchJobDetail(item.securityId, item.lid || item.jobId)
+      j = mergeBossDetail(item, detail as Parameters<typeof mergeBossDetail>[1])
+    } catch (e) {
+      logger.warn('详情获取失败，使用列表数据', e)
+    }
+  }
+  job.value = j
+  await cacheJob(j)
+  await ensureApplication(j)
+  return j
 }
 
 async function ensureApplication(j: Job): Promise<Application> {

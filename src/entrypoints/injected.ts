@@ -75,6 +75,7 @@ async function getCurrentJob(): Promise<Job | null> {
       const job = parseBossJobItem({
         encryptJobId: m,
         securityId,
+        lid,
         jobName: detail.jobInfo?.jobName ?? detail.jobInfo?.positionName ?? '',
         salaryDesc: detail.jobInfo?.salaryDesc,
         skills: detail.jobInfo?.showSkills,
@@ -100,7 +101,7 @@ async function getCurrentJob(): Promise<Job | null> {
   const hooked = await pollHookedJobDetail()
   if (hooked) {
     const detail = hooked.detail as Parameters<typeof mergeBossDetail>[1]
-    const job = parseBossJobItem({ encryptJobId: m, securityId: detail.securityId ?? '', jobName: '' })
+    const job = parseBossJobItem({ encryptJobId: m, securityId: detail.securityId ?? '', lid: detail.lid ?? '', jobName: '' })
     return mergeBossDetail(job, detail)
   }
   // 最后兕底：仅返回基础信息（无 JD），由 UI 提示手动刷新
@@ -108,14 +109,44 @@ async function getCurrentJob(): Promise<Job | null> {
 }
 
 async function listVisibleJobs(): Promise<Job[]> {
+  const out = new Map<string, Job>()
+  // 主路径：hook 容器组件的 jobList（参考 boss-helper 已验证方案）
   try {
     const vue = await getContainerVue(6000)
     const list = readVueData(vue, 'jobList') as BossZpJobItemData[] | undefined
-    if (Array.isArray(list)) return list.map(parseBossJobItem)
+    if (Array.isArray(list)) {
+      for (const item of list) {
+        if (item?.encryptJobId) out.set(item.encryptJobId, parseBossJobItem(item))
+      }
+    }
   } catch (e) {
     logger.warn('jobList hook 失败', e)
   }
-  return []
+  // 兕底：从岗位卡片组件实例的 props 提取（首页/改版场景）
+  if (out.size === 0) {
+    try {
+      const anchors = document.querySelectorAll<HTMLAnchorElement>('a[href*="/job_detail/"]')
+      for (const a of Array.from(anchors).slice(0, 60)) {
+        let el: Element | null = a
+        for (let depth = 0; depth < 6 && el; depth++) {
+          const vue = (el as unknown as { __vue__?: { $props?: Record<string, unknown> } }).__vue__
+          if (vue?.$props) {
+            for (const v of Object.values(vue.$props)) {
+              const item = v as BossZpJobItemData
+              if (item && typeof item === 'object' && typeof item.encryptJobId === 'string' && item.encryptJobId && !out.has(item.encryptJobId)) {
+                out.set(item.encryptJobId, parseBossJobItem(item))
+              }
+            }
+            break
+          }
+          el = el.parentElement
+        }
+      }
+    } catch (e) {
+      logger.warn('岗位卡片提取失败', e)
+    }
+  }
+  return Array.from(out.values())
 }
 
 const handlers: Record<string, (payload: unknown) => Promise<unknown>> = {

@@ -40,6 +40,8 @@ export function parseBossJobItem(item: BossZpJobItemData): Job {
       online: item.bossOnline ?? false,
     },
     contacted: item.contact ?? false,
+    securityId: item.securityId ?? '',
+    lid: item.lid ?? '',
     fetchedAt: Date.now(),
   })
 }

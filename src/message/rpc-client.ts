@@ -38,6 +38,7 @@ export interface RpcClient {
   listVisibleJobs(): Promise<Job[]>
   sendGreeting(opts: SendGreetingOptions): Promise<SendResult>
   readChat(): Promise<ChatMessage[]>
+  fetchJobDetail(securityId: string, lid: string): Promise<unknown>
   fetchBossData(encryptUserId: string, securityId: string): Promise<unknown>
 }
 
@@ -47,5 +48,6 @@ export const rpc: RpcClient = {
   listVisibleJobs: () => callTab<Job[]>('job.listVisible', undefined, 10000),
   sendGreeting: (opts) => callTab<SendResult>('chat.send', { text: opts.text, send: opts.mode === 'confirm-send' }),
   readChat: () => callTab<ChatMessage[]>('chat.read', undefined, 8000),
+  fetchJobDetail: (securityId, lid) => callTab('boss.fetchJobDetail', { securityId, lid }),
   fetchBossData: (encryptUserId, securityId) => callTab('boss.fetchBossData', { encryptUserId, securityId }),
 }

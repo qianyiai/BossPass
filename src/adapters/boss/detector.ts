@@ -15,6 +15,8 @@ export function detectBossPageKind(url: string): PageKind {
   if (p.includes('/web/geek/chat')) return 'chat'
   if (p.includes('/web/geek/job-recommend') || p.includes('/web/geek/jobs') || p.includes('/web/geek/recommend')) return 'job-list'
   if (p.includes('/web/geek/search') || p.startsWith('/web/geek/')) return 'search'
+  // 首页/城市页（如 /shanghai/?seoRefer=index）也渲染岗位列表
+  if (p === '/' || /^\/[a-z]+\/?$/.test(p)) return 'job-list'
   return 'other'
 }
 

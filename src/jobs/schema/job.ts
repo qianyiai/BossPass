@@ -68,6 +68,10 @@ export const JobSchema = z.object({
   }),
   /** 求职者是否已与对方沟通过（平台状态） */
   contacted: z.boolean().default(false),
+  /** 平台令牌：拉取详情/发送消息需要（boss: securityId） */
+  securityId: z.string().default(''),
+  /** 平台令牌：boss 的 lid（详情请求配对用） */
+  lid: z.string().default(''),
   /** 抓取时间 */
   fetchedAt: z.number().default(0),
 })
