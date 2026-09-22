@@ -1,0 +1,36 @@
+{
+  "name": "bosspass",
+  "description": "AI Job Copilot — 从岗位分析到简历定制、打招呼、聊天辅助与申请跟踪",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt --browser firefox",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "compile": "wxt prepare && vue-tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^2.0.0",
+    "ai": "^5.0.0",
+    "idb": "^8.0.0",
+    "pdfjs-dist": "^5.4.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/chrome": "^0.1.43",
+    "@wxt-dev/module-vue": "^1.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.6.0",
+    "vue": "^3.5.0",
+    "vue-tsc": "^2.1.0",
+    "wxt": "^0.20.0"
+  },
+  "allowScripts": {
+    "esbuild@0.27.7": true,
+    "spawn-sync@1.0.15": true
+  }
+}
