@@ -79,13 +79,56 @@ export async function loadMaster() {
   master.value = (await getActiveMasterResume()) ?? null
 }
 
+/** 上传简历状态（全局，切换页签/组件重建不丢失） */
+export const uploading = ref(false)
+export const uploadStep = ref<'idle' | 'extract' | 'ai'>('idle')
+export const uploadError = ref('')
+export const lastResumeText = ref('')
+
+function friendlyUploadError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  if (/Provider|API Key|配置/.test(msg)) {
+    return `解析简历需要 AI：请先到「设置」页添加 Provider 并填入 API Key。（${msg}）`
+  }
+  return `简历解析失败：${msg}（已保留提取的文本，可直接点「重试解析」）`
+}
+
 /** 上传 PDF → 文本 →（AI）结构化 → Master Resume */
 export async function uploadResumePdf(file: File) {
-  if (!isSupportedResumeFile(file)) throw new Error('第一版仅支持 PDF 简历')
-  const text = await extractTextFromPdf(file)
-  if (!text.trim()) throw new Error('未能从 PDF 提取到文本（可能是扫描件）')
-  master.value = await createMasterResumeFromText(text)
-  return master.value
+  uploadError.value = ''
+  uploading.value = true
+  uploadStep.value = 'extract'
+  try {
+    if (!isSupportedResumeFile(file)) throw new Error('第一版仅支持 PDF 简历')
+    const text = await extractTextFromPdf(file)
+    if (!text.trim()) throw new Error('未能从 PDF 提取到文本（可能是扫描件，或 PDF 加密）')
+    lastResumeText.value = text
+    uploadStep.value = 'ai'
+    master.value = await createMasterResumeFromText(text)
+    uploadStep.value = 'idle'
+    return master.value
+  } catch (e) {
+    uploadError.value = friendlyUploadError(e)
+    uploadStep.value = 'idle'
+    throw e
+  } finally {
+    uploading.value = false
+  }
+}
+
+/** AI 解析失败后，用已提取的文本直接重试（无需重新上传 PDF） */
+export async function retryParseResume() {
+  if (!lastResumeText.value) return
+  uploadError.value = ''
+  uploading.value = true
+  uploadStep.value = 'ai'
+  try {
+    master.value = await createMasterResumeFromText(lastResumeText.value)
+    uploadStep.value = 'idle'
+  } catch (e) {
+    uploadError.value = friendlyUploadError(e)
+    uploadStep.value = 'idle'
+  }
 }
 
 /** 读取当前 BOSS 岗位（页面 RPC），并落缓存/申请记录；列表页则拉取可见岗位 */

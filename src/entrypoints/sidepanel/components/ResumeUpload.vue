@@ -1,45 +1,35 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { master, uploadResumePdf } from '../useAppState'
+import {
+  master,
+  uploading,
+  uploadStep,
+  uploadError,
+  lastResumeText,
+  uploadResumePdf,
+  retryParseResume,
+} from '../useAppState'
 import type { UserFactProfile } from '@/resume/schema/resume'
 
-const uploading = ref(false)
-const error = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragOver = ref(false)
 
-async function handleFile(file: File) {
-  uploading.value = true
-  error.value = ''
-  try {
-    await uploadResumePdf(file)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    error.value = /Provider|API Key|配置/.test(msg)
-      ? `解析简历需要 AI：请先到「设置」页添加 Provider 并填入 API Key，再重新上传。（${msg}）`
-      : msg
-  } finally {
-    uploading.value = false
-  }
+function handleFile(file: File) {
+  void uploadResumePdf(file)
 }
 
 function onFile(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  void handleFile(file)
+  handleFile(file)
   input.value = ''
 }
 
 function onDrop(e: DragEvent) {
   dragOver.value = false
   const file = e.dataTransfer?.files?.[0]
-  if (!file) return
-  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
-    error.value = '请拖入 PDF 文件'
-    return
-  }
-  void handleFile(file)
+  if (file) handleFile(file)
 }
 
 function updateFact<K extends keyof UserFactProfile>(key: K, value: UserFactProfile[K]) {
@@ -59,12 +49,25 @@ function updateFact<K extends keyof UserFactProfile>(key: K, value: UserFactProf
     >
       <input ref="fileInput" type="file" accept="application/pdf,.pdf" class="hidden" @change="onFile" />
       <button class="btn btn-primary w-full" :disabled="uploading" @click="fileInput?.click()">
-        {{ uploading ? '解析中（提取文本 → AI 结构化）…' : master ? '重新上传 PDF 简历' : '上传 PDF 简历' }}
+        {{
+          uploading
+            ? uploadStep === 'extract'
+              ? '提取 PDF 文本中…'
+              : 'AI 结构化解析中…（约 10-60 秒，切换页签不影响）'
+            : master
+              ? '重新上传 PDF 简历'
+              : '上传 PDF 简历'
+        }}
       </button>
       <p class="mt-1 text-center text-[10px] text-gray-400">
         或将 PDF 拖拽到本区域 · 解析为结构化 Master Resume，全部保存在本地
       </p>
-      <div v-if="error" class="mt-1 text-[11px] leading-relaxed text-red-500">{{ error }}</div>
+      <div v-if="uploadError" class="mt-1 text-[11px] leading-relaxed text-red-500">
+        {{ uploadError }}
+        <button v-if="lastResumeText" class="btn btn-outline mt-1 w-full" @click="retryParseResume">
+          {{ uploading ? '重试中…' : '重试解析' }}
+        </button>
+      </div>
     </div>
 
     <template v-if="master">
