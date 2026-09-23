@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import MatchScore from './MatchScore.vue'
 import {
   job,
   analysis,
   analyzing,
+  analysisError,
   runAnalyze,
   refreshJob,
   selectJob,
@@ -17,6 +18,19 @@ import type { Job } from '@/jobs/schema/job'
 
 const refreshing = ref(false)
 const selectingKey = ref('')
+const analyzeElapsed = ref(0)
+let timer: ReturnType<typeof setInterval> | undefined
+
+watch(analyzing, (on) => {
+  if (on) {
+    analyzeElapsed.value = 0
+    timer = setInterval(() => (analyzeElapsed.value += 1), 1000)
+  } else if (timer) {
+    clearInterval(timer)
+    timer = undefined
+  }
+})
+onUnmounted(() => timer && clearInterval(timer))
 
 async function onRefresh() {
   refreshing.value = true
@@ -135,12 +149,17 @@ function riskStyle(text: string): string {
     </div>
 
     <!-- 分析按钮 -->
-    <button v-if="job" class="btn btn-primary w-full" :disabled="analyzing || !master || !hasProvider" @click="runAnalyze">
-      <span v-if="analyzing">分析中…（AI 对比简历与 JD）</span>
-      <span v-else-if="!master">请先上传简历（「简历」页）</span>
-      <span v-else-if="!hasProvider">请先配置 AI（「设置」页）</span>
-      <span v-else>{{ analysis ? '重新分析岗位' : '分析岗位' }}</span>
-    </button>
+    <div v-if="job" class="space-y-1">
+      <button class="btn btn-primary w-full" :disabled="analyzing || !master || !hasProvider" @click="runAnalyze">
+        <span v-if="analyzing">分析中…（{{ analyzeElapsed }}s，思考型模型可能需要 1-4 分钟）</span>
+        <span v-else-if="!master">请先上传简历（「简历」页）</span>
+        <span v-else-if="!hasProvider">请先配置 AI（「设置」页）</span>
+        <span v-else>{{ analysis ? '重新分析岗位' : '分析岗位' }}</span>
+      </button>
+      <div v-if="analysisError" class="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] leading-relaxed text-red-600">
+        {{ analysisError }}
+      </div>
+    </div>
 
     <!-- 分析结果 -->
     <div v-if="job && analysis" class="card">

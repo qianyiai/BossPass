@@ -7,6 +7,14 @@ import { logger } from '@/utils/logger'
 export class AIConfigError extends Error {}
 export class AIOutputError extends Error {}
 
+/** 思考型模型（GLM/DeepSeek-R1 等）思考+输出共用预算，且耗时远超普通请求
+ *  实测：glm-5.3 分析任务 229s（8k 预算下被截断）、16k 预算可完成。故：
+ *  - 超时下限 300s
+ *  - 输出预算 16k
+ */
+const MIN_TIMEOUT_MS = 300_000
+const MAX_OUTPUT_TOKENS = 16_000
+
 async function resolveModel(task: TaskKind) {
   const settings = await loadSettings()
   const provider = pickProvider(settings, task)
@@ -59,7 +67,7 @@ export async function runStructured<T>(
   opts: { system: string; user: string },
 ): Promise<T> {
   const { model, provider } = await resolveModel(task)
-  const abort = AbortSignal.timeout(provider.timeoutMs)
+  const abort = AbortSignal.timeout(Math.max(provider.timeoutMs, MIN_TIMEOUT_MS))
   try {
     const { object } = await generateObject({
       model,
@@ -73,13 +81,24 @@ export async function runStructured<T>(
   } catch (e) {
     if (e instanceof AIConfigError) throw e
     logger.warn('generateObject failed, fallback to text JSON:', e)
-    const { text } = await generateText({
+    const { text, finishReason } = await generateText({
       model,
       system: `${opts.system}\n\n重要：只输出符合要求的 JSON，不要输出任何解释或 markdown 代码块。`,
       prompt: opts.user,
       temperature: provider.temperature,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
       abortSignal: abort,
     })
+    if (!text.trim()) {
+      throw new AIOutputError(
+        finishReason === 'length'
+          ? '模型思考耗尽了输出预算，正文为空：建议换更快的模型（如 GLM glm-5.3-flashx）再试'
+          : '模型返回为空',
+      )
+    }
+    if (finishReason === 'length') {
+      logger.warn('输出被截断（finish=length），尝试解析已有内容')
+    }
     return parseJsonLoose(text, schema)
   }
 }
@@ -90,14 +109,17 @@ export async function runText(
   opts: { system: string; user: string; maxTokens?: number },
 ): Promise<string> {
   const { model, provider } = await resolveModel(task)
-  const { text } = await generateText({
+  const { text, finishReason } = await generateText({
     model,
     system: opts.system,
     prompt: opts.user,
     temperature: provider.temperature,
-    maxOutputTokens: opts.maxTokens ?? 800,
-    abortSignal: AbortSignal.timeout(provider.timeoutMs),
+    maxOutputTokens: Math.max(opts.maxTokens ?? 800, MAX_OUTPUT_TOKENS),
+    abortSignal: AbortSignal.timeout(Math.max(provider.timeoutMs, MIN_TIMEOUT_MS)),
   })
+  if (!text.trim() && finishReason === 'length') {
+    throw new AIOutputError('模型思考耗尽了输出预算，正文为空：建议换更快的模型（如 GLM glm-5.3-flashx）再试')
+  }
   return text.trim()
 }
 

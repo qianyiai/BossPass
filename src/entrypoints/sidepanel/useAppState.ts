@@ -27,6 +27,7 @@ export const job = ref<Job | null>(null)
 export const pageInfo = ref<{ pageKind: string; url: string } | null>(null)
 export const analysis = ref<MatchAnalysis | null>(null)
 export const analyzing = ref(false)
+export const analysisError = ref('')
 export const application = ref<Application | null>(null)
 /** 列表页可见岗位（详情页之外的场景） */
 export const visibleJobs = ref<Job[]>([])
@@ -228,12 +229,19 @@ async function advanceStatus(minStatus: ApplicationStatus) {
   }
 }
 
-/** AI 岗位分析 */
+/** AI 岗位分析（失败信息写入 analysisError，UI 展示） */
 export async function runAnalyze() {
   const m = master.value
   const j = job.value
-  if (!m) throw new Error('请先上传并解析 Master Resume（「简历」页）')
-  if (!j) throw new Error('未识别到岗位，请打开 BOSS 岗位详情页后刷新')
+  if (!m) {
+    analysisError.value = '请先上传并解析 Master Resume（「简历」页）'
+    return
+  }
+  if (!j) {
+    analysisError.value = '未识别到岗位，请打开 BOSS 岗位详情页后刷新'
+    return
+  }
+  analysisError.value = ''
   analyzing.value = true
   try {
     const { analysis: a } = await analyzeJobAndMatch({ job: j, resume: m.resume, factProfile: m.factProfile })
@@ -244,6 +252,11 @@ export async function runAnalyze() {
       await upsertApplication(application.value)
     }
     await advanceStatus('Analyzed')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    analysisError.value = /timed? ?out|timeout|abort/i.test(msg)
+      ? `分析超时（思考型模型可能需要 1-4 分钟）。建议换更快的模型（如 GLM glm-5.3-flashx）后重试。（${msg}）`
+      : msg
   } finally {
     analyzing.value = false
   }
