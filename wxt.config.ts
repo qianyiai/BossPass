@@ -13,7 +13,12 @@ export default defineConfig({
     description:
       'AI 求职助手：岗位分析 · 匹配度 · 针对岗位优化简历 · 生成打招呼 · 聊天辅助 · 申请跟踪',
     permissions: ['storage', 'sidePanel', 'activeTab'],
-    host_permissions: ['*://zhipin.com/*', '*://*.zhipin.com/*'],
+    host_permissions: [
+      '*://zhipin.com/*',
+      '*://*.zhipin.com/*',
+      // models.dev 开源模型库：设置页「在线获取最新模型」用
+      'https://models.dev/*',
+    ],
     web_accessible_resources: [
       {
         resources: ['injected.js'],

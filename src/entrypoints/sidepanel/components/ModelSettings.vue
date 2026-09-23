@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { settings, reloadSettings, persistSettings } from '../useAppState'
-import { PROVIDER_PRESETS } from '@/ai/providers/presets'
+import { findPresetByBaseURL, PROVIDER_PRESETS } from '@/ai/providers/presets'
+import { fetchModelOptions, type ModelOption } from '@/ai/providers/modelsdev'
 import type { AIProvider, TaskKind } from '@/storage/settings'
 
 const editing = ref<AIProvider | null>(null)
@@ -45,6 +46,40 @@ function newCustom() {
 
 function edit(p: AIProvider) {
   editing.value = structuredClone(p)
+}
+
+// 模型快选列表：预设内置（models.dev 同步）+ 可在线拉取当天最新
+const modelOptions = ref<ModelOption[]>([])
+const loadingModels = ref(false)
+
+function seedModelOptions() {
+  const preset = editing.value ? findPresetByBaseURL(editing.value.baseURL) : undefined
+  modelOptions.value = (preset?.models ?? []).map((id) => ({ id, name: id }))
+}
+watch(editing, seedModelOptions, { immediate: true })
+
+async function loadOnlineModels() {
+  const e = editing.value
+  if (!e) return
+  const preset = findPresetByBaseURL(e.baseURL)
+  if (!preset?.modelsDevKey) {
+    testResult.value = '自定义端点没有在线模型列表，请手动输入模型 ID'
+    return
+  }
+  loadingModels.value = true
+  try {
+    const opts = await fetchModelOptions(preset.modelsDevKey)
+    if (!opts.length) {
+      testResult.value = 'models.dev 上没有该 Provider 的模型数据'
+      return
+    }
+    modelOptions.value = opts
+    testResult.value = `✓ 已获取 ${opts.length} 个模型，点击「模型」输入框下拉选择`
+  } catch (err) {
+    testResult.value = `获取失败：${err instanceof Error ? err.message : String(err)}`
+  } finally {
+    loadingModels.value = false
+  }
 }
 
 async function saveProvider() {
@@ -144,8 +179,20 @@ onMounted(() => void reloadSettings())
       </div>
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <span class="label">模型</span>
-          <input v-model="editing.model" class="input" />
+          <div class="flex items-center justify-between">
+            <span class="label !mb-0">模型</span>
+            <button
+              class="text-[10px] text-blue-500 hover:underline disabled:opacity-50"
+              :disabled="loadingModels"
+              @click="loadOnlineModels"
+            >
+              {{ loadingModels ? '获取中…' : '⟳ 在线获取最新' }}
+            </button>
+          </div>
+          <input v-model="editing.model" class="input mt-0.5" list="bosspass-model-options" placeholder="点击上方可拉取 models.dev 最新列表" />
+          <datalist id="bosspass-model-options">
+            <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.name }}</option>
+          </datalist>
         </div>
         <div>
           <span class="label">Temperature</span>
