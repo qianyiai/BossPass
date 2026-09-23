@@ -4,6 +4,7 @@ import { settings, reloadSettings, persistSettings } from '../useAppState'
 import { findPresetByBaseURL, PROVIDER_PRESETS } from '@/ai/providers/presets'
 import { fetchModelOptions, type ModelOption } from '@/ai/providers/modelsdev'
 import type { AIProvider, TaskKind } from '@/storage/settings'
+import { loadSettings } from '@/storage/settings'
 
 const editing = ref<AIProvider | null>(null)
 const saving = ref(false)
@@ -56,7 +57,41 @@ function seedModelOptions() {
   const preset = editing.value ? findPresetByBaseURL(editing.value.baseURL) : undefined
   modelOptions.value = (preset?.models ?? []).map((id) => ({ id, name: id }))
 }
-watch(editing, seedModelOptions, { immediate: true })
+
+// —— 自动保存：填入 API Key 后防抖自动 upsert，无需手动点保存 ——
+const autoSaved = ref(false)
+let autoSaveTimer: ReturnType<typeof setTimeout> | undefined
+
+async function autoSave() {
+  const e = editing.value
+  if (!e || !e.apiKey.trim() || !e.baseURL.trim()) return
+  try {
+    if (!settings.value) settings.value = await loadSettings()
+    const s = settings.value!
+    if (!Array.isArray(s.providers)) s.providers = []
+    if (!e.id) e.id = `prov_${Date.now().toString(36)}`
+    const idx = s.providers.findIndex((x) => x.id === e.id)
+    if (idx >= 0) s.providers[idx] = e
+    else s.providers.push(e)
+    if (!s.defaultProviderId) s.defaultProviderId = e.id
+    await persistSettings(s)
+    autoSaved.value = true
+  } catch (err) {
+    testResult.value = `自动保存失败：${err instanceof Error ? err.message : String(err)}`
+  }
+}
+
+watch(
+  editing,
+  (e) => {
+    autoSaved.value = false
+    seedModelOptions()
+    if (autoSaveTimer) clearTimeout(autoSaveTimer)
+    if (!e) return
+    autoSaveTimer = setTimeout(() => void autoSave(), 900)
+  },
+  { immediate: true },
+)
 
 async function loadOnlineModels() {
   const e = editing.value
@@ -83,9 +118,10 @@ async function loadOnlineModels() {
 }
 
 async function saveProvider() {
-  if (!editing.value || !settings.value) return
+  if (!editing.value) return
   saving.value = true
   try {
+    if (!settings.value) settings.value = await loadSettings()
     const p = editing.value
     if (!Array.isArray(settings.value.providers)) settings.value.providers = []
     if (p.id) {
@@ -167,6 +203,7 @@ async function resetAll() {
           <div class="text-xs font-medium">
             {{ p.name }} <span class="text-gray-400">{{ p.model }}</span>
             <span v-if="settings?.defaultProviderId === p.id" class="badge ml-1 bg-blue-50 text-blue-600">默认</span>
+            <span v-if="!p.apiKey" class="badge ml-1 bg-red-50 text-red-600">未填 Key</span>
           </div>
           <div class="flex gap-1">
             <button class="btn btn-outline !px-2 !py-0.5" @click="testProvider(p)">测试</button>
@@ -190,7 +227,7 @@ async function resetAll() {
         <input v-model="editing.baseURL" class="input" />
       </div>
       <div>
-        <span class="label">API Key</span>
+        <span class="label">API Key（填完自动保存）</span>
         <input v-model="editing.apiKey" type="password" class="input" />
       </div>
       <div class="grid grid-cols-2 gap-2">
@@ -216,9 +253,10 @@ async function resetAll() {
         </div>
       </div>
       <div class="flex gap-2">
-        <button class="btn btn-primary flex-1" :disabled="saving" @click="saveProvider">保存</button>
+        <button class="btn btn-primary flex-1" :disabled="saving" @click="saveProvider">{{ autoSaved ? '已自动保存 ✓' : '保存' }}</button>
         <button class="btn btn-outline" @click="editing = null">取消</button>
       </div>
+      <div v-if="autoSaved" class="text-[11px] text-green-600">✓ 已自动保存，可直接去上传简历 / 分析岗位</div>
     </div>
 
     <div v-if="testResult" class="text-[11px] text-gray-600">{{ testResult }}</div>

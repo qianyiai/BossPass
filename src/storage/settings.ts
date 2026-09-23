@@ -83,7 +83,10 @@ export async function loadSettings(): Promise<Settings> {
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
-  await chrome.storage.sync.set({ [SETTINGS_KEY]: settings })
+  // 脱掉 Vue 响应式代理，避免任何序列化边角问题
+  const plain = JSON.parse(JSON.stringify(settings)) as Settings
+  if (!Array.isArray(plain.providers)) plain.providers = []
+  await chrome.storage.sync.set({ [SETTINGS_KEY]: plain })
 }
 
 export async function addProvider(p: Omit<AIProvider, 'id'>): Promise<Settings> {
@@ -119,9 +122,13 @@ export async function removeProvider(id: string): Promise<Settings> {
 export function pickProvider(settings: Settings, task: TaskKind): AIProvider | undefined {
   const list = Array.isArray(settings.providers) ? settings.providers : []
   const byTask = settings.taskModels?.[task]
+  // 已填 Key 的可用 Provider 优先，避免早期创建的空 Key Provider 霸占默认位
+  const usable = list.filter((p) => typeof p.apiKey === 'string' && p.apiKey.trim() !== '')
   return (
+    usable.find((p) => p.id === byTask) ??
+    usable.find((p) => p.id === settings.defaultProviderId) ??
+    usable[0] ??
     list.find((p) => p.id === byTask) ??
-    list.find((p) => p.id === settings.defaultProviderId) ??
     list[0]
   )
 }
