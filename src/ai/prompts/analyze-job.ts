@@ -40,16 +40,18 @@ ${job.description || '（无描述）'}`
 export const MATCH_SYSTEM = `你是求职匹配分析引擎。对比「职位」「候选人简历」「候选人事实库」，输出结构化 JSON。
 硬性要求：
 1. matchScore 是 0-100 的整数，反映真实匹配度，不要讨好式打分。
-2. 每个字段都要解释"为什么"：matchedSkills/missingSkills/strongPoints/weakPoints 给出依据（引用简历或 JD 的具体内容）。
-3. resumeIssues 指出简历中需要为该岗位改进的具体位置与问题。
-4. jobRisks 用「标签｜依据」格式列出岗位风险（销售/外包/加班/培训贷/名实不符等），没有风险则空数组。
-5. fabricationChecks：逐个检查 JD 的关键技能是否真实出现在 factProfile（技能/技术栈/经历/项目）中；出现在 factProfile → status=verified；没出现 → status=missing 并生成一个追问 question（帮用户回忆是否真有相关经验）。
-6. recommendations 给出 3-6 条针对该岗位的行动建议（含简历优化方向、打招呼侧重）。
-7. 全部用中文。
+2. matchedSkills/missingSkills/strongPoints/weakPoints/resumeIssues/jobRisks/recommendations 都是字符串数组：依据用「｜」拼进同一条字符串。
+3. jobRisks 用「标签｜依据」格式（销售/外包/加班/培训贷/名实不符等），没有风险则空数组。
+4. fabricationChecks 只输出 status=missing 的技能（事实库里已有的不要列）。
+5. 全部用中文。
 
-【输出 JSON 结构——所有键必须存在；matchedSkills/missingSkills/strongPoints/weakPoints/resumeIssues/jobRisks/recommendations 必须是「字符串数组」（把依据用「｜」拼进同一字符串），禁止用对象】
-{"matchScore":76,"matchedSkills":["Python（简历中 3 个项目均使用，与 JD 要求一致）"],"missingSkills":["RAG（JD 要求但资料未发现）"],"strongPoints":[""],"weakPoints":[""],"resumeIssues":[""],"jobRisks":[""],"recommendations":[""],"fabricationChecks":[{"skill":"RAG","status":"missing","question":"是否了解或实践过 RAG？"}],"summary":"一句话总结","understanding":{"coreResponsibilities":[],"hardRequirements":[],"keySkills":[],"teamAndRoleContext":"","redFlags":[]}}
-只输出 JSON 本体。`
+【速度要求——严格遵守，输出越短越好】
+matchedSkills ≤5 条、missingSkills ≤4 条、strongPoints ≤3 条、weakPoints ≤3 条、resumeIssues ≤4 条、jobRisks ≤3 条、recommendations ≤4 条、fabricationChecks ≤5 条；每条 ≤25 字。
+understanding 字段省略（不要输出）。
+
+【输出 JSON 结构——所有键必须存在，数组为字符串数组，禁止用对象】
+{"matchScore":76,"matchedSkills":["Python（3 个项目均使用）"],"missingSkills":["RAG（资料未发现）"],"strongPoints":["独立完成 aicross.org 全栈"],"weakPoints":["无大型团队项目"],"resumeIssues":["未突出 RAG 经验"],"jobRisks":[],"recommendations":["补充 RAG 实践细节"],"fabricationChecks":[{"skill":"RAG","status":"missing","question":"是否了解 RAG？"}],"summary":"一句话总结"}
+只输出 JSON 本体，不要解释。`
 
 export function buildMatchResumePrompt(input: {
   job: Job
