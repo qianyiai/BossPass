@@ -62,7 +62,9 @@ export const missingInfo = ref<string[]>([])
 export const loadingChat = ref(false)
 export const generatingReplies = ref(false)
 
-export const hasProvider = computed(() => (settings.value?.providers.length ?? 0) > 0)
+export const hasProvider = computed(
+  () => Array.isArray(settings.value?.providers) && (settings.value?.providers.length ?? 0) > 0,
+)
 
 export async function reloadSettings() {
   settings.value = await loadSettings()

@@ -56,10 +56,23 @@ export async function loadSettings(): Promise<Settings> {
     const raw = (await chrome.storage.sync.get(SETTINGS_KEY))[SETTINGS_KEY] as
       | Partial<Settings>
       | undefined
-    if (!raw) return structuredClone(DEFAULT_SETTINGS)
+    if (!raw || typeof raw !== 'object') return structuredClone(DEFAULT_SETTINGS)
+    // 防御旧版本/异常数据：providers 必须是数组，逐项校验形状
+    const providersRaw: unknown = (raw as { providers?: unknown }).providers
+    const providers = Array.isArray(providersRaw)
+      ? providersRaw.filter(
+          (p): p is AIProvider =>
+            !!p &&
+            typeof p === 'object' &&
+            typeof (p as AIProvider).id === 'string' &&
+            typeof (p as AIProvider).baseURL === 'string' &&
+            typeof (p as AIProvider).model === 'string',
+        )
+      : []
     return {
       ...structuredClone(DEFAULT_SETTINGS),
       ...raw,
+      providers,
       taskModels: { ...DEFAULT_SETTINGS.taskModels, ...(raw.taskModels ?? {}) },
       greeting: { ...DEFAULT_SETTINGS.greeting, ...(raw.greeting ?? {}) },
     }
@@ -104,10 +117,11 @@ export async function removeProvider(id: string): Promise<Settings> {
 }
 
 export function pickProvider(settings: Settings, task: TaskKind): AIProvider | undefined {
-  const byTask = settings.taskModels[task]
+  const list = Array.isArray(settings.providers) ? settings.providers : []
+  const byTask = settings.taskModels?.[task]
   return (
-    settings.providers.find((p) => p.id === byTask) ??
-    settings.providers.find((p) => p.id === settings.defaultProviderId) ??
-    settings.providers[0]
+    list.find((p) => p.id === byTask) ??
+    list.find((p) => p.id === settings.defaultProviderId) ??
+    list[0]
   )
 }

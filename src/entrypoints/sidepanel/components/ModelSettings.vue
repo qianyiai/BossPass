@@ -87,6 +87,7 @@ async function saveProvider() {
   saving.value = true
   try {
     const p = editing.value
+    if (!Array.isArray(settings.value.providers)) settings.value.providers = []
     if (p.id) {
       const idx = settings.value.providers.findIndex((x) => x.id === p.id)
       if (idx >= 0) settings.value.providers[idx] = p
@@ -105,6 +106,7 @@ async function saveProvider() {
 
 async function del(p: AIProvider) {
   if (!settings.value) return
+  if (!Array.isArray(settings.value.providers)) settings.value.providers = []
   settings.value.providers = settings.value.providers.filter((x) => x.id !== p.id)
   if (settings.value.defaultProviderId === p.id) settings.value.defaultProviderId = settings.value.providers[0]?.id ?? ''
   for (const k of Object.keys(settings.value.taskModels) as TaskKind[]) {
@@ -128,6 +130,19 @@ async function testProvider(p: AIProvider) {
 }
 
 onMounted(() => void reloadSettings())
+
+/** 自救：清除可能损坏的本地配置并重新加载 */
+async function resetAll() {
+  if (!window.confirm('确定清除全部 AI 配置（Provider / 任务模型分配 / 打招呼风格）并重新开始？')) return
+  try {
+    await chrome.storage.sync.remove('settings')
+    await chrome.storage.local.remove('settings')
+  } catch {
+    /* ignore */
+  }
+  await reloadSettings()
+  testResult.value = '已重置，请重新添加 Provider'
+}
 </script>
 
 <template>
@@ -138,6 +153,7 @@ onMounted(() => void reloadSettings())
         <span class="text-xs font-semibold">AI Provider（OpenAI 兼容）</span>
         <div class="flex gap-1">
           <button class="btn btn-outline !py-1" @click="newCustom">+ 自定义</button>
+          <button class="btn btn-outline !py-1 !text-red-500" title="配置异常时的自救按钮" @click="resetAll">重置</button>
         </div>
       </div>
       <div class="flex flex-wrap gap-1">

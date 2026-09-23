@@ -6,21 +6,40 @@ import type { UserFactProfile } from '@/resume/schema/resume'
 const uploading = ref(false)
 const error = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const dragOver = ref(false)
 
-async function onFile(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
+async function handleFile(file: File) {
   uploading.value = true
   error.value = ''
   try {
     await uploadResumePdf(file)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    const msg = err instanceof Error ? err.message : String(err)
+    error.value = /Provider|API Key|配置/.test(msg)
+      ? `解析简历需要 AI：请先到「设置」页添加 Provider 并填入 API Key，再重新上传。（${msg}）`
+      : msg
   } finally {
     uploading.value = false
-    input.value = ''
   }
+}
+
+function onFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  void handleFile(file)
+  input.value = ''
+}
+
+function onDrop(e: DragEvent) {
+  dragOver.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (!file) return
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
+    error.value = '请拖入 PDF 文件'
+    return
+  }
+  void handleFile(file)
 }
 
 function updateFact<K extends keyof UserFactProfile>(key: K, value: UserFactProfile[K]) {
@@ -30,14 +49,22 @@ function updateFact<K extends keyof UserFactProfile>(key: K, value: UserFactProf
 
 <template>
   <div class="space-y-3">
-    <!-- 上传 -->
-    <div class="card">
+    <!-- 上传（支持点击 / 拖拽） -->
+    <div
+      class="card border-2 border-dashed transition-colors"
+      :class="dragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-200'"
+      @dragover.prevent="dragOver = true"
+      @dragleave.prevent="dragOver = false"
+      @drop.prevent="onDrop"
+    >
       <input ref="fileInput" type="file" accept="application/pdf,.pdf" class="hidden" @change="onFile" />
       <button class="btn btn-primary w-full" :disabled="uploading" @click="fileInput?.click()">
         {{ uploading ? '解析中（提取文本 → AI 结构化）…' : master ? '重新上传 PDF 简历' : '上传 PDF 简历' }}
       </button>
-      <p class="mt-1 text-center text-[10px] text-gray-400">PDF 文本将解析为结构化 Master Resume，全部保存在本地</p>
-      <div v-if="error" class="mt-1 text-[11px] text-red-500">{{ error }}</div>
+      <p class="mt-1 text-center text-[10px] text-gray-400">
+        或将 PDF 拖拽到本区域 · 解析为结构化 Master Resume，全部保存在本地
+      </p>
+      <div v-if="error" class="mt-1 text-[11px] leading-relaxed text-red-500">{{ error }}</div>
     </div>
 
     <template v-if="master">
