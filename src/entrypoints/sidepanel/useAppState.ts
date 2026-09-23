@@ -87,6 +87,9 @@ export const lastResumeText = ref('')
 
 function friendlyUploadError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
+  if (/timed? ?out|timeout|abort/i.test(msg)) {
+    return `AI 请求超时（模型思考过久或网络慢）。建议：① 换更快的模型（如 GLM glm-5.3-flashx）② 检查网络/代理 ③ 点「重试解析」再试一次。（${msg}）`
+  }
   if (/Provider|API Key|配置/.test(msg)) {
     return `解析简历需要 AI：请先到「设置」页添加 Provider 并填入 API Key。（${msg}）`
   }

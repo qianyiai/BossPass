@@ -40,8 +40,10 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     label: 'GLM (智谱)',
     baseURL: 'https://open.bigmodel.cn/api/paas/v4',
-    model: 'glm-5.3',
-    models: ['glm-5.3', 'glm-5.3-flashx', 'glm-5.3-flash'],
+    // 实测：glm-5.3-flash 默认强制思考，解析一份简历要 60-290s 且 120s 必超时；
+    // glm-5.3-flashx 同任务约 18s 且输出完全正确（2026-09-23 实测）
+    model: 'glm-5.3-flashx',
+    models: ['glm-5.3-flashx', 'glm-5.3-flash', 'glm-5.3', 'glm-5.2'],
     modelsDevKey: 'zhipuai',
   },
   {

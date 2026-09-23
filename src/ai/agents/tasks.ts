@@ -144,13 +144,15 @@ export async function generateFollowup(input: {
 export async function parseResumeText(resumeText: string): Promise<Resume> {
   const prompt = buildParseResumePrompt(resumeText)
   const { model, provider } = await resolveModel('parse')
+  // 推理型模型思考开销大，parse 超时放宽到 max(配置值, 300s)
+  const timeout = Math.max(provider.timeoutMs, 300000)
   const { text } = await generateText({
     model,
     system: prompt.system,
     prompt: prompt.user,
     temperature: provider.temperature,
     maxOutputTokens: 8000,
-    abortSignal: AbortSignal.timeout(provider.timeoutMs),
+    abortSignal: AbortSignal.timeout(timeout),
   })
   const raw = parseJsonLoose(text, z.unknown())
   return normalizeParsedResume(raw)

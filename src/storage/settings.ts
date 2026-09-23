@@ -57,18 +57,22 @@ export async function loadSettings(): Promise<Settings> {
       | Partial<Settings>
       | undefined
     if (!raw || typeof raw !== 'object') return structuredClone(DEFAULT_SETTINGS)
-    // 防御旧版本/异常数据：providers 必须是数组，逐项校验形状
+    // 防御旧版本/异常数据：providers 必须是数组，逐项校验形状；
+    // 兼容历史版本写入的 {"0":{...}} 对象形态（Vue reactive 数组经 chrome.storage 序列化的产物）
     const providersRaw: unknown = (raw as { providers?: unknown }).providers
-    const providers = Array.isArray(providersRaw)
-      ? providersRaw.filter(
-          (p): p is AIProvider =>
-            !!p &&
-            typeof p === 'object' &&
-            typeof (p as AIProvider).id === 'string' &&
-            typeof (p as AIProvider).baseURL === 'string' &&
-            typeof (p as AIProvider).model === 'string',
-        )
-      : []
+    const providersList: unknown[] = Array.isArray(providersRaw)
+      ? providersRaw
+      : providersRaw && typeof providersRaw === 'object'
+        ? Object.values(providersRaw as Record<string, unknown>)
+        : []
+    const providers = providersList.filter(
+      (p): p is AIProvider =>
+        !!p &&
+        typeof p === 'object' &&
+        typeof (p as AIProvider).id === 'string' &&
+        typeof (p as AIProvider).baseURL === 'string' &&
+        typeof (p as AIProvider).model === 'string',
+    )
     return {
       ...structuredClone(DEFAULT_SETTINGS),
       ...raw,
