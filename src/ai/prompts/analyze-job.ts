@@ -45,7 +45,11 @@ export const MATCH_SYSTEM = `你是求职匹配分析引擎。对比「职位」
 4. jobRisks 用「标签｜依据」格式列出岗位风险（销售/外包/加班/培训贷/名实不符等），没有风险则空数组。
 5. fabricationChecks：逐个检查 JD 的关键技能是否真实出现在 factProfile（技能/技术栈/经历/项目）中；出现在 factProfile → status=verified；没出现 → status=missing 并生成一个追问 question（帮用户回忆是否真有相关经验）。
 6. recommendations 给出 3-6 条针对该岗位的行动建议（含简历优化方向、打招呼侧重）。
-7. 全部用中文。`
+7. 全部用中文。
+
+【输出 JSON 结构——所有键必须存在；matchedSkills/missingSkills/strongPoints/weakPoints/resumeIssues/jobRisks/recommendations 必须是「字符串数组」（把依据用「｜」拼进同一字符串），禁止用对象】
+{"matchScore":76,"matchedSkills":["Python（简历中 3 个项目均使用，与 JD 要求一致）"],"missingSkills":["RAG（JD 要求但资料未发现）"],"strongPoints":[""],"weakPoints":[""],"resumeIssues":[""],"jobRisks":[""],"recommendations":[""],"fabricationChecks":[{"skill":"RAG","status":"missing","question":"是否了解或实践过 RAG？"}],"summary":"一句话总结","understanding":{"coreResponsibilities":[],"hardRequirements":[],"keySkills":[],"teamAndRoleContext":"","redFlags":[]}}
+只输出 JSON 本体。`
 
 export function buildMatchResumePrompt(input: {
   job: Job
@@ -82,7 +86,14 @@ ${JSON.stringify(factProfile, null, 1)}
 
 /** 一次调用完成：岗位理解 + 匹配分析（合并输出，减少请求次数） */
 export const AnalyzeOutputSchema = MatchAnalysisSchema.extend({
-  understanding: JobUnderstandingSchema,
+  // 模型可能漏掉 understanding 整个对象，给默认值兜底
+  understanding: JobUnderstandingSchema.default({
+    coreResponsibilities: [],
+    hardRequirements: [],
+    keySkills: [],
+    teamAndRoleContext: '',
+    redFlags: [],
+  }),
 })
 export type AnalyzeOutput = z.infer<typeof AnalyzeOutputSchema>
 

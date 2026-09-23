@@ -53,6 +53,50 @@ export const ChatMessageSchema = z.object({
 })
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
 
+/**
+ * 宽松字符串数组：模型经常返回 [{skill:"X",evidence:"..."}] 而不是 ["X｜..."],
+ * 统一拍平成字符串（主值｜依据）；字符串数组/换行分隔字符串也兼容。
+ */
+const FlexibleStringArray = z.preprocess((v) => {
+  const flatten = (item: unknown): string => {
+    if (typeof item === 'string') return item.trim()
+    if (item && typeof item === 'object') {
+      const o = item as Record<string, unknown>
+      const pickStr = (keys: string[]): string => {
+        for (const k of keys) {
+          const x = o[k]
+          if (typeof x === 'string' && x.trim()) return x.trim()
+        }
+        return ''
+      }
+      const main = pickStr(['skill', 'name', 'label', 'point', 'title', 'text', 'issue', 'risk', 'question', 'content', 'item', 'desc', 'description', '建议', '技能', '问题', '风险'])
+      const extra = pickStr(['evidence', 'reason', 'detail', 'why', '依据', '原因', '说明'])
+      if (main) return extra ? `${main}｜${extra}` : main
+      const first = Object.values(o).find((x) => typeof x === 'string' && x.trim())
+      return typeof first === 'string' ? first.trim() : JSON.stringify(o)
+    }
+    return String(item ?? '')
+  }
+  if (typeof v === 'string') {
+    return v
+      .split(/[\n;；]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+  if (!Array.isArray(v)) return []
+  return v.map(flatten).filter(Boolean)
+}, z.array(z.string()).default([]))
+
+/** matchScore 兼容 "82" / 82 等形态 */
+const TolerantScore = z.preprocess((v) => {
+  if (typeof v === 'string') {
+    const n = Number(v.replace(/[^\d.]/g, ''))
+    if (Number.isNaN(n)) return 0
+    return n
+  }
+  return v
+}, z.number().min(0).max(100).default(0))
+
 export const ApplicationSchema = z.object({
   id: z.string(),
   jobKey: z.string(),
@@ -78,23 +122,32 @@ export const ApplicationSchema = z.object({
 export type Application = z.infer<typeof ApplicationSchema>
 
 export const MatchAnalysisSchema = z.object({
-  matchScore: z.number().min(0).max(100),
+  matchScore: TolerantScore,
   scoreAfterOptimize: z.number().min(0).max(100).nullable().default(null),
-  matchedSkills: z.array(z.string()).default([]),
-  missingSkills: z.array(z.string()).default([]),
-  strongPoints: z.array(z.string()).default([]),
-  weakPoints: z.array(z.string()).default([]),
-  resumeIssues: z.array(z.string()).default([]),
-  jobRisks: z.array(z.string()).default([]),
-  recommendations: z.array(z.string()).default([]),
+  matchedSkills: FlexibleStringArray,
+  missingSkills: FlexibleStringArray,
+  strongPoints: FlexibleStringArray,
+  weakPoints: FlexibleStringArray,
+  resumeIssues: FlexibleStringArray,
+  jobRisks: FlexibleStringArray,
+  recommendations: FlexibleStringArray,
   /** 反编造检查：AI 声称要用但事实库缺失的能力 */
   fabricationChecks: z
     .array(
-      z.object({
+      z.preprocess((v) => {
+        if (!v || typeof v !== 'object') return v
+        const o = v as Record<string, unknown>
+        const status = typeof o.status === 'string' ? o.status.toLowerCase() : 'missing'
+        return {
+          skill: typeof o.skill === 'string' ? o.skill : String(o.skill ?? ''),
+          status: status === 'verified' ? 'verified' : 'missing',
+          question: typeof o.question === 'string' ? o.question : '',
+        }
+      }, z.object({
         skill: z.string(),
-        status: z.enum(['verified', 'missing']),
+        status: z.enum(['verified', 'missing']).default('missing'),
         question: z.string().default(''),
-      }),
+      })),
     )
     .default([]),
   summary: z.string().default(''),
