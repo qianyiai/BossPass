@@ -34,14 +34,17 @@ export const ResumeEducation = z.object({
 export type ResumeEducation = z.infer<typeof ResumeEducation>
 
 export const ResumeSchema = z.object({
-  profile: z.object({
-    name: z.string().default(''),
-    email: z.string().default(''),
-    phone: z.string().default(''),
-    location: z.string().default(''),
-    linkedin: z.string().default(''),
-    website: z.string().default(''),
-  }),
+  // profile 允许缺省（AI 偶尔漏掉整个对象时用空值兜底，不阻塞解析）
+  profile: z
+    .object({
+      name: z.string().default(''),
+      email: z.string().default(''),
+      phone: z.string().default(''),
+      location: z.string().default(''),
+      linkedin: z.string().default(''),
+      website: z.string().default(''),
+    })
+    .default({ name: '', email: '', phone: '', location: '', linkedin: '', website: '' }),
   summary: z.string().default(''),
   skills: z.array(z.string()).default([]),
   experience: z.array(ResumeExperience).default([]),

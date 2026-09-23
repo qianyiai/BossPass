@@ -1,4 +1,6 @@
-import { runStructured, runText } from '@/ai/agents'
+import { runStructured, runText, resolveModel, parseJsonLoose } from '@/ai/agents'
+import { generateText } from 'ai'
+import { z } from 'zod'
 import {
   AnalyzeOutputSchema,
   buildAnalyzeJobPrompt,
@@ -21,7 +23,7 @@ import {
   buildChatReplyPrompt,
   buildFollowupPrompt,
 } from '@/ai/prompts/generate-chat-reply'
-import { ParsedResumeSchema, buildParseResumePrompt } from '@/ai/prompts/parse-resume'
+import { buildParseResumePrompt, normalizeParsedResume } from '@/ai/prompts/parse-resume'
 import type { MatchAnalysis } from '@/applications/schema/application'
 import type { Job } from '@/jobs/schema/job'
 import type { Resume, UserFactProfile } from '@/resume/schema/resume'
@@ -137,10 +139,21 @@ export async function generateFollowup(input: {
   return runStructured('chat', FollowupOutputSchema, prompt)
 }
 
-/** PDF 文本 → 结构化简历 */
+/** PDF 文本 → 结构化简历：大嵌套 schema 的结构化输出在部分兼容端点不稳定，
+ * 统一走纯文本生成 + 键名归一化（模型返回中文/别名键也能映射回标准结构） */
 export async function parseResumeText(resumeText: string): Promise<Resume> {
   const prompt = buildParseResumePrompt(resumeText)
-  return runStructured('parse', ParsedResumeSchema, prompt)
+  const { model, provider } = await resolveModel('parse')
+  const { text } = await generateText({
+    model,
+    system: prompt.system,
+    prompt: prompt.user,
+    temperature: provider.temperature,
+    maxOutputTokens: 8000,
+    abortSignal: AbortSignal.timeout(provider.timeoutMs),
+  })
+  const raw = parseJsonLoose(text, z.unknown())
+  return normalizeParsedResume(raw)
 }
 
 /** 重写某段经历 bullets（用户补充真实细节后） */
